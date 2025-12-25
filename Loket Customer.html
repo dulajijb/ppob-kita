@@ -1,0 +1,248 @@
+<style>
+/* ===== WRAPPER ===== */
+.ppob{
+font-family:Segoe UI,Tahoma;
+max-width:480px;margin:20px auto;
+background:#fff;padding:20px;border-radius:16px;
+box-shadow:0 12px 35px rgba(0,0,0,.18);
+position: relative;
+}
+h2{text-align:center;margin-bottom:6px}
+.small{font-size:12px;color:#555;text-align:center;margin-bottom:10px}
+.balance-info { background: #eef2ff; padding: 10px; border-radius: 10px; text-align: center; margin-bottom: 15px; border: 1px dashed #4da3ff; }
+.balance-info b { color: #2563eb; font-size: 18px; }
+
+input {
+width:100%;padding:12px;margin:8px 0;
+border-radius:10px;border:1px solid #ccc;
+box-sizing: border-box;
+}
+
+/* ===== PRODUK ===== */
+.prod-grid{
+display:grid;
+grid-template-columns:repeat(3,1fr);
+gap:12px;margin:15px 0
+}
+.prod{
+padding:18px 10px;
+border-radius:16px;
+text-align:center;
+font-size:15px;
+font-weight:700;
+cursor:pointer;
+background:linear-gradient(145deg,#f5f5f5,#ffffff);
+box-shadow:6px 6px 12px rgba(0,0,0,.15),
+           -6px -6px 12px rgba(255,255,255,.9);
+transition:.25s
+}
+.prod span{font-size:26px;display:block}
+.prod.active{
+background:linear-gradient(145deg,#28a745,#3ecf63);
+color:#fff;
+box-shadow:0 8px 18px rgba(40,167,69,.6)
+}
+
+/* ===== NOMINAL ===== */
+.price-grid{
+display:grid;
+grid-template-columns:repeat(3,1fr);
+gap:10px;margin:12px 0
+}
+.price{
+padding:14px 8px;
+border-radius:14px;
+text-align:center;
+cursor:pointer;
+font-weight:700;
+background:#ffffff;
+color:#333;
+box-shadow:0 6px 14px rgba(0,0,0,.12);
+transition:.25s;
+user-select:none
+}
+.price.active{
+background:linear-gradient(145deg,#4da3ff,#78b8ff);
+color:#fff;
+transform:translateY(-4px);
+box-shadow: 0 10px 20px rgba(77,163,255,0.4);
+}
+
+/* ===== TOMBOL BARU ===== */
+.btn-beli {
+display:block; width:100%; padding:16px; margin-top:15px;
+border-radius:14px; text-align:center; font-weight:700;
+border: none; font-size: 16px; cursor: pointer;
+background: linear-gradient(145deg, #2563eb, #1e40af);
+color: #fff !important; transition: .3s;
+}
+.btn-beli:disabled { background: #ccc; cursor: not-allowed; }
+.btn-beli:active { transform: scale(0.98); }
+
+/* ===== STRUK (MODAL) ===== */
+#struk {
+display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%);
+background:white; padding:20px; border-radius:10px; box-shadow:0 0 50px rgba(0,0,0,0.5);
+width:300px; z-index:1000; font-family: monospace;
+}
+.overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:999; }
+</style>
+
+<div class="ppob">
+    <h2>Padong Payment</h2>
+    <div class="small">Sistem Kasir Simulasi - Terhubung ke Termux</div>
+    
+    <div class="balance-info">
+        Saldo Simulasi: <br> <b>Rp <span id="display-saldo">0</span></b>
+    </div>
+
+    <label>Nama Kasir/Pemesan</label>
+    <input id="nama" placeholder="Masukkan nama">
+
+    <label id="labelTujuan">Nomor Tujuan</label>
+    <input id="tujuan" type="number" placeholder="08xxxxxxxxxx">
+
+    <div class="prod-grid">
+      <div class="prod active" data-produk="PULSA"><span>📱</span>Pulsa</div>
+      <div class="prod" data-produk="PLN"><span>⚡</span>Token</div>
+      <div class="prod" data-produk="DATA"><span>🌐</span>Data</div>
+    </div>
+
+    <div class="price-grid" id="prices"></div>
+
+    <button id="btn-proses" class="btn-beli" onclick="prosesTransaksi()">BELI SEKARANG</button>
+
+    <div class="small" style="margin-top:12px">
+        <b>STATUS SERVER:</b> <span id="server-status">Mengecek...</span>
+    </div>
+</div>
+
+<div id="overlay" class="overlay" onclick="tutupStruk()"></div>
+<div id="struk">
+    <div style="text-align:center"><b>STRUK PEMBAYARAN</b></div>
+    <hr>
+    <div id="isi-struk"></div>
+    <hr>
+    <button onclick="tutupStruk()" style="width:100%; padding:10px; margin-top:10px">Tutup</button>
+</div>
+
+<script>
+// PENTING: Ganti dengan link LocalTunnel kamu!
+const API_URL = "https://utility-forget-enhance-spectacular.trycloudflare.com";
+
+let produkTerpilih = "PULSA";
+let nominalTerpilih = "";
+let kodeProduk = "";
+
+// Data Kode Produk untuk Backend
+const mappingProduk = {
+    "PULSA": [
+        {label: "5K", code: "PL5"}, {label: "10K", code: "PL10"}, {label: "20K", code: "PL20"}
+    ],
+    "PLN": [
+        {label: "20K", code: "PLN20"}, {label: "50K", code: "PLN50"}, {label: "100K", code: "PLN100"}
+    ],
+    "DATA": [
+        {label: "5GB", code: "D5"}, {label: "10GB", code: "D10"}, {label: "20GB", code: "D20"}
+    ]
+};
+
+async function init() {
+    try {
+        const res = await fetch(`${API_URL}/saldo`);
+        const data = await res.json();
+        document.getElementById('display-saldo').innerText = data.saldo.toLocaleString();
+        document.getElementById('server-status').innerText = "ONLINE ✅";
+        document.getElementById('server-status').style.color = "green";
+    } catch (e) {
+        document.getElementById('server-status').innerText = "OFFLINE ❌ (Cek Termux)";
+        document.getElementById('server-status').style.color = "red";
+    }
+    renderNominal();
+}
+
+function renderNominal() {
+    const container = document.getElementById("prices");
+    container.innerHTML = "";
+    mappingProduk[produkTerpilih].forEach((item, i) => {
+        const d = document.createElement("div");
+        d.className = "price" + (i === 0 ? " active" : "");
+        d.textContent = item.label;
+        if(i === 0) { nominalTerpilih = item.label; kodeProduk = item.code; }
+        
+        d.onclick = () => {
+            document.querySelectorAll(".price").forEach(p => p.classList.remove("active"));
+            d.classList.add("active");
+            nominalTerpilih = item.label;
+            kodeProduk = item.code;
+        };
+        container.appendChild(d);
+    });
+}
+
+document.querySelectorAll(".prod").forEach(p => {
+    p.onclick = () => {
+        document.querySelectorAll(".prod").forEach(x => x.classList.remove("active"));
+        p.classList.add("active");
+        produkTerpilih = p.dataset.produk;
+        renderNominal();
+    };
+});
+
+async function prosesTransaksi() {
+    const nama = document.getElementById('nama').value;
+    const tujuan = document.getElementById('tujuan').value;
+    const btn = document.getElementById('btn-proses');
+
+    if (!nama || !tujuan) return alert("Lengkapi Nama dan Nomor Tujuan!");
+
+    btn.disabled = true;
+    btn.innerText = "MEMPROSES...";
+
+    try {
+        const res = await fetch(`${API_URL}/transaction`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                service_code: produkTerpilih,
+                product_code: kodeProduk,
+                customer_number: tujuan
+            })
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+            tampilkanStruk(data);
+            init(); // Refresh saldo
+        } else {
+            alert("Gagal: " + data.detail);
+        }
+    } catch (e) {
+        alert("Gagal koneksi ke server Termux!");
+    } finally {
+        btn.disabled = false;
+        btn.innerText = "BELI SEKARANG";
+    }
+}
+
+function tampilkanStruk(data) {
+    document.getElementById('isi-struk').innerHTML = `
+        ID TRX: ${data.id}<br>
+        TGL   : ${data.date}<br>
+        PRODUK: ${data.product}<br>
+        NOMOR : ${data.customer_number}<br>
+        HARGA : Rp ${data.price.toLocaleString()}<br>
+        STATUS: ${data.status}
+    `;
+    document.getElementById('struk').style.display = 'block';
+    document.getElementById('overlay').style.display = 'block';
+}
+
+function tutupStruk() {
+    document.getElementById('struk').style.display = 'none';
+    document.getElementById('overlay').style.display = 'none';
+}
+
+init();
+</script>
